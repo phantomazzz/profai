@@ -112,6 +112,24 @@ describe('LLM-оркестрация на мок-провайдере', () => {
     expect(persona.tone_notes).toBeTruthy();
   });
 
+  it('пропущенный personality_map у модели → бэкфилл, отчёт остаётся валидным', async () => {
+    const ctx = buildContext();
+    // модель вернула секцию личности без personality_map (наблюдали на проде)
+    const stripping: LlmProvider = {
+      name: 'stripping',
+      async generateStructured(req: LlmRequest) {
+        const r = (await provider.generateStructured(req)) as Record<string, unknown>;
+        delete r.personality_map;
+        return r;
+      },
+    };
+    const report = await runFinalReport(stripping, ctx);
+    expect(report.personality_map).toBeTruthy();
+    expect(typeof report.personality_map.narrative).toBe('string');
+    expect(report.personality_map.key_characteristics.length).toBeGreaterThan(0);
+    expect(report.personality_traits).toHaveLength(16);
+  });
+
   it('битый ответ модели для секций финала ловится валидацией схемы', async () => {
     const ctx = buildContext();
     const brokenProvider: LlmProvider = {

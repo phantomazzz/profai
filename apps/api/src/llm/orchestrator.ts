@@ -9,7 +9,10 @@ import type { LlmProvider } from './provider.js';
 import { validateAgainstSchema, validateSectionData } from './validation.js';
 import { draftPersonaSchema, sectionSchemas } from './schemas.js';
 import { buildDraftPersonaPrompt, buildSectionPrompt } from './prompts.js';
-import { FINAL_SECTIONS, buildDraftPersona, type ReportContext, type FinalSection } from './report-generator.js';
+import { FINAL_SECTIONS, buildDraftPersona, buildSection, type ReportContext, type FinalSection } from './report-generator.js';
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
 import type { MockContext } from './providers/mock.js';
 
 export interface DraftPersonaInput {
@@ -162,6 +165,16 @@ function normalizeSection(
         recommendations: recs,
       };
     });
+
+    // Секция большая — модель иногда роняет верхнеуровневые поля (наблюдали
+    // «/personality_map must be object» на проде). Бэкфилл из детерминированного
+    // генератора: сохраняем текст модели, но не роняем весь отчёт из-за пропуска.
+    const det = buildSection('personality', ctx) as Record<string, unknown>;
+    if (!isObj(raw.personality_map)) raw.personality_map = det.personality_map;
+    if (typeof raw.personality_summary !== 'string' || !raw.personality_summary)
+      raw.personality_summary = det.personality_summary;
+    if (!isObj(raw.potential)) raw.potential = det.potential;
+    if (!Array.isArray(raw.life_stages)) raw.life_stages = det.life_stages;
     return raw;
   }
 
@@ -210,11 +223,11 @@ async function generateSection(
   const context: MockContext = { kind: 'section', section, reportContext: ctx };
 
   let lastErrors: string[] = [];
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const fix =
       attempt === 0
         ? ''
-        : `\n\nПредыдущий ответ не прошёл проверку: ${lastErrors.join('; ')}. Заполни ВСЕ обязательные поля и соблюдай минимальное количество элементов в массивах.`;
+        : `\n\nПредыдущий ответ не прошёл проверку: ${lastErrors.join('; ')}. Заполни ВСЕ обязательные поля (включая personality_map со всеми вложенными полями) и соблюдай минимальное количество элементов в массивах.`;
     const raw = normalizeSection(
       section,
       (await provider.generateStructured({
