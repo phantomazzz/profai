@@ -1,0 +1,313 @@
+{
+  "_comment": "Две схемы структурированного вывода для двух вызовов LLM. Используются через structured outputs / JSON schema enforcement провайдера.",
+
+  "draft_persona_schema": {
+    "_comment": "Вызов 1 — сразу после открытых ответов, работает в фоне, пока пользователь проходит закрытые вопросы",
+    "type": "object",
+    "properties": {
+      "predicted_type": {
+        "type": "string",
+        "description": "Рабочее название психологического типа одним-двумя словами, например 'Аналитик' или 'Стратег-эмпат'"
+      },
+      "reframed_request": {
+        "type": "string",
+        "description": "Переформулированный основной запрос пользователя в одно-два предложения, честно отражающий суть, а не просто повтор текста"
+      },
+      "current_situation_summary": {
+        "type": "string",
+        "description": "Краткое резюме текущей жизненной ситуации на основе открытых ответов (2-4 предложения)"
+      },
+      "tentative_themes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "3-5 повторяющихся тем/паттернов, которые видны в открытых ответах"
+      },
+      "tentative_strengths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Предварительные гипотезы о сильных сторонах, требуют подтверждения количественными баллами на втором этапе"
+      },
+      "tentative_concerns": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Предварительные гипотезы о зонах риска/тревоги"
+      },
+      "notable_quotes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "1-3 дословных фрагмента из открытых ответов, которые стоит процитировать в финальном отчёте для персонализации"
+      },
+      "tone_notes": {
+        "type": "string",
+        "description": "Рекомендация по тону финального отчёта (например 'прямой, без сюсюканья' или 'мягкий, человек тревожен')"
+      }
+    },
+    "required": ["predicted_type", "reframed_request", "current_situation_summary", "tentative_themes", "tentative_strengths", "tentative_concerns", "tone_notes"]
+  },
+
+  "final_report_schema": {
+    "_comment": "Вызов 2 — после закрытых вопросов. На практике рекомендуется разбить на параллельные под-вызовы по секциям (personality/career/meaning/motivation/next_steps), но итоговая структура одна — эта.",
+    "type": "object",
+    "properties": {
+
+      "personality_map": {
+        "type": "object",
+        "properties": {
+          "narrative": { "type": "string", "description": "2-3 абзаца синтеза личности, объединяющие черты в связный портрет" },
+          "life_stage": { "type": "string" },
+          "core_request_reflected": { "type": "string", "description": "Явная связка с исходным запросом пользователя" },
+          "direction": { "type": "string", "description": "Общее направление, где человек раскрывается сильнее всего" },
+          "key_characteristics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "explanation": { "type": "string" },
+                "example": { "type": "string" }
+              },
+              "required": ["title", "explanation", "example"]
+            },
+            "minItems": 4,
+            "maxItems": 6
+          }
+        },
+        "required": ["narrative", "life_stage", "core_request_reflected", "direction", "key_characteristics"]
+      },
+
+      "personality_traits": {
+        "type": "array",
+        "description": "16 факторов, percent берётся из computed_scores, текст генерирует LLM",
+        "items": {
+          "type": "object",
+          "properties": {
+            "factor_key": { "type": "string" },
+            "percent": { "type": "number" },
+            "description": { "type": "string" },
+            "interpretation": { "type": "string" },
+            "recommendations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 2,
+              "maxItems": 3
+            }
+          },
+          "required": ["factor_key", "percent", "description", "interpretation", "recommendations"]
+        },
+        "minItems": 16,
+        "maxItems": 16
+      },
+
+      "personality_summary": { "type": "string" },
+
+      "life_stages": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "age": { "type": "integer" },
+            "title": { "type": "string" },
+            "narrative": { "type": "string" },
+            "growth_zone": { "type": "string" },
+            "recommendation": { "type": "string" }
+          },
+          "required": ["age", "title", "narrative", "growth_zone", "recommendation"]
+        }
+      },
+
+      "potential": {
+        "type": "object",
+        "properties": {
+          "strengths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "meaning": { "type": "string" },
+                "where_it_shows": { "type": "string" },
+                "how_to_use": { "type": "string" },
+                "how_to_strengthen": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 3 },
+                "book_recommendation_id": { "type": "string", "description": "ссылка на id в books_library, не выдумывать книгу заново" }
+              },
+              "required": ["title", "meaning", "where_it_shows", "how_to_use", "how_to_strengthen", "book_recommendation_id"]
+            }
+          },
+          "growth_areas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "description_with_example": { "type": "string" },
+                "how_to_work": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 3 },
+                "action_today": { "type": "string" },
+                "book_recommendation_id": { "type": "string" }
+              },
+              "required": ["title", "description_with_example", "how_to_work", "action_today", "book_recommendation_id"]
+            }
+          }
+        },
+        "required": ["strengths", "growth_areas"]
+      },
+
+      "meaning": {
+        "type": "object",
+        "properties": {
+          "mission": { "type": "string" },
+          "purpose_orientation": { "type": "string" },
+          "role_model_example": { "type": "string", "description": "реальный человек с похожим путём, обязательно с проверяемым именем, без выдуманных персон" },
+          "what_to_avoid": { "type": "string" },
+          "hidden_talents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "evidence": { "type": "string" },
+                "career_application": { "type": "string" }
+              },
+              "required": ["title", "evidence", "career_application"]
+            }
+          }
+        },
+        "required": ["mission", "purpose_orientation", "role_model_example", "what_to_avoid", "hidden_talents"]
+      },
+
+      "motivation": {
+        "type": "object",
+        "properties": {
+          "leading_type": { "type": "string" },
+          "supporting_types": { "type": "array", "items": { "type": "string" } },
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type_key": { "type": "string" },
+                "percent": { "type": "number" },
+                "description": { "type": "string" },
+                "example_person": { "type": "string" }
+              },
+              "required": ["type_key", "percent", "description"]
+            }
+          },
+          "motivators": {
+            "type": "object",
+            "properties": {
+              "autonomy_percent": { "type": "number" },
+              "mastery_percent": { "type": "number" },
+              "purpose_percent": { "type": "number" },
+              "narrative": { "type": "string" }
+            }
+          },
+          "narrative": { "type": "string" },
+          "suitable_directions": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["leading_type", "supporting_types", "breakdown", "motivators", "narrative"]
+      },
+
+      "career": {
+        "type": "object",
+        "properties": {
+          "riasec_profile": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type_key": { "type": "string" },
+                "percent": { "type": "number" }
+              },
+              "required": ["type_key", "percent"]
+            }
+          },
+          "holland_code": { "type": "string", "description": "например 'IEC'" },
+          "narrative": { "type": "string" },
+          "suitable_professions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "profession_id": { "type": "string", "description": "ссылка на id в базе professions, не выдумывать" },
+                "why_it_fits": { "type": "string" },
+                "reflection_questions": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 4 }
+              },
+              "required": ["profession_id", "why_it_fits", "reflection_questions"]
+            },
+            "minItems": 4,
+            "maxItems": 6
+          },
+          "unsuitable_professions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "profession_id": { "type": "string" },
+                "fit_probability": { "type": "integer", "minimum": 0, "maximum": 100 },
+                "why_not": { "type": "string" }
+              },
+              "required": ["profession_id", "fit_probability", "why_not"]
+            },
+            "minItems": 2,
+            "maxItems": 3
+          },
+          "ideal_team": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string" },
+                "why": { "type": "string" }
+              },
+              "required": ["role", "why"]
+            }
+          },
+          "business_directions": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["riasec_profile", "holland_code", "narrative", "suitable_professions", "unsuitable_professions"]
+      },
+
+      "next_steps": {
+        "type": "object",
+        "properties": {
+          "action_24h": { "type": "string" },
+          "weekly_plan": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "week": { "type": "integer" },
+                "title": { "type": "string" },
+                "goal": { "type": "string" },
+                "actions": { "type": "array", "items": { "type": "string" } },
+                "watch_out": { "type": "string" }
+              },
+              "required": ["week", "title", "goal", "actions", "watch_out"]
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "traps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "antidote": { "type": "string" }
+              },
+              "required": ["title", "description", "antidote"]
+            }
+          },
+          "tied_to_core_request": { "type": "string", "description": "явное объяснение, как этот план решает запрос, заданный в начале теста" }
+        },
+        "required": ["action_24h", "weekly_plan", "traps", "tied_to_core_request"]
+      }
+
+    },
+    "required": ["personality_map", "personality_traits", "personality_summary", "potential", "meaning", "motivation", "career", "next_steps"]
+  }
+}

@@ -1,0 +1,15 @@
+# Деплой демо-фронта на Netlify (вариант «подключить репозиторий»).
+# Для быстрого деплоя проще перетащить готовую папку apps/web/dist на app.netlify.com/drop.
+[build]
+  command = "npm run build:shared && npm run build --workspace @profai/web"
+  publish = "apps/web/dist"
+
+[build.environment]
+  VITE_DEMO = "1"        # демо-режим: отчёт-образец без вызова LLM
+  NODE_VERSION = "20"
+
+# HashRouter не требует SPA-редиректов, но оставим на случай прямых ссылок.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

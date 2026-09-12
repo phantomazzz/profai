@@ -1,0 +1,24 @@
+# Деплой profAI на Render — один always-on веб-сервис отдаёт и фронт, и API
+# (single-origin: фронт ходит в /api без CORS, генерация ~2 мин не упирается в
+#  таймауты serverless). Free-план засыпает после ~15 мин простоя (холодный
+#  старт ~30-60с) и имеет эфемерный диск — для рассылки паре тестеров ок.
+services:
+  - type: web
+    name: profai
+    runtime: node
+    plan: free
+    # devDependencies нужны и на билд (vite/tsc), и на рантайм (tsx) — ставим их явно
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: LLM_PROVIDER
+        value: anthropic
+      - key: LLM_MODEL
+        value: claude-sonnet-5
+      - key: LLM_MODEL_DRAFT
+        value: claude-sonnet-5
+      - key: LLM_API_KEY
+        sync: false   # секрет — ввести значение в дашборде Render, НЕ коммитить

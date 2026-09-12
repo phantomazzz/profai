@@ -1,0 +1,239 @@
+// profAI — схема БД MVP веб-теста для взрослых.
+// Раздел 7 product_context.md + потребности скоринга и LLM-оркестрации.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Пользователи ───────────────────────────
+// В MVP авторизация/оплата вне скоупа: доступ по токену сессии.
+// Таблица заложена заранее под общую платформу (телеграм-бот, подписки).
+model User {
+  id         String        @id @default(cuid())
+  telegramId String?       @unique
+  email      String?       @unique
+  createdAt  DateTime      @default(now())
+  sessions   TestSession[]
+}
+
+enum SessionStatus {
+  CREATED // сессия создана, консент не дан
+  IN_PROGRESS // проходит вопросы
+  OPEN_DONE // открытые ответы отправлены -> запущен LLM Job 1
+  CLOSED_DONE // закрытые отправлены -> запущен скоринг + LLM Job 2
+  REPORT_READY // отчёт сгенерирован
+  ABANDONED
+}
+
+// ─────────────────────────── Сессия теста ───────────────────────────
+model TestSession {
+  id          String        @id @default(cuid())
+  user        User?         @relation(fields: [userId], references: [id])
+  userId      String?
+  status      SessionStatus @default(CREATED)
+  // текущий шаг для возобновления (напр. "PERSONALITY_16:2")
+  currentStep String?
+  // явный консент на обработку ПД и передачу в зарубежный LLM (152-ФЗ)
+  consentAt   DateTime?
+  consentText String? // версия текста согласия, показанного пользователю
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  profile        SessionProfile?
+  openAnswers    OpenAnswer[]
+  closedAnswers  ClosedAnswer[]
+  computedScores ComputedScore[]
+  llmJobs        LlmJob[]
+  report         Report?
+
+  @@index([status])
+}
+
+// Вступительная анкета (7 полей). personalRequest — смысловой якорь отчёта.
+model SessionProfile {
+  id              String       @id @default(cuid())
+  session         TestSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId       String       @unique
+  age             Int?
+  city            String?
+  education        String? // среднее / среднее спец. / неоконч. высшее / высшее / уч. степень
+  occupation      String?
+  incomeRange     String? // до 50к / 50-100к / ... / предпочитаю не указывать
+  supportLevel    String? // да / скорее да / скорее нет / нет / не отвечать
+  personalRequest String? // якорь: «что беспокоит в карьере/доходе»
+}
+
+// ─────────────────────── Банк вопросов ───────────────────────
+enum QuestionBlock {
+  RIASEC
+  PERSONALITY_16
+  GERCHIKOV
+  PINK
+}
+
+enum ScaleType {
+  LIKERT_5 // 1-5 согласие
+  RIASEC_4 // 1-4 интерес
+}
+
+model Question {
+  id        String        @id @default(cuid())
+  block     QuestionBlock
+  scaleKey  String // латинский ключ шкалы (см. @profai/shared scales.ts)
+  text      String
+  orderIndex Int // порядок внутри блока
+  isReverse Boolean
+  scaleType ScaleType
+
+  answers ClosedAnswer[]
+
+  @@unique([block, scaleKey, orderIndex])
+  @@index([block])
+}
+
+// Открытые ответы интервью (5 вопросов). questionKey: open_1..open_5.
+model OpenAnswer {
+  id         String      @id @default(cuid())
+  session    TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId  String
+  questionKey String
+  text       String
+  createdAt  DateTime    @default(now())
+
+  @@unique([sessionId, questionKey])
+}
+
+model ClosedAnswer {
+  id         String      @id @default(cuid())
+  session    TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId  String
+  question   Question    @relation(fields: [questionId], references: [id])
+  questionId String
+  rawValue   Int // 1-5 или 1-4 в зависимости от scaleType вопроса
+  createdAt  DateTime    @default(now())
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+}
+
+enum ScaleCategory {
+  RIASEC
+  PERSONALITY
+  GERCHIKOV
+  PINK
+}
+
+// Итог скоринга: ~30 пар (scaleKey, percent). Передаётся в финальный промпт.
+model ComputedScore {
+  id        String        @id @default(cuid())
+  session   TestSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId String
+  category  ScaleCategory
+  scaleKey  String
+  percent   Float // 0-100
+  // для RIASEC храним и абсолютный, и относительный процент
+  percentAbsolute Float?
+
+  @@unique([sessionId, category, scaleKey])
+  @@index([sessionId])
+}
+
+// ─────────────────────── LLM-оркестрация ───────────────────────
+enum LlmJobType {
+  DRAFT_PERSONA // вызов 1
+  FINAL_PERSONALITY // под-вызовы вызова 2
+  FINAL_CAREER
+  FINAL_MEANING
+  FINAL_MOTIVATION
+  FINAL_NEXT_STEPS
+}
+
+enum LlmJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model LlmJob {
+  id          String       @id @default(cuid())
+  session     TestSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId   String
+  type        LlmJobType
+  status      LlmJobStatus @default(PENDING)
+  provider    String? // anthropic / openai
+  model       String?
+  attempts    Int          @default(0)
+  promptMeta  Json? // что реально ушло (без сырых 124 ответов)
+  resultJson  Json? // валидированный ответ по JSON-схеме
+  error       String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([sessionId, type])
+  @@index([status])
+}
+
+// ─────────────────────── База профессий ───────────────────────
+model Profession {
+  id             String   @id // напр. "profession-data-analyst"
+  title          String
+  riasecCode     String // "IEC"
+  incomeStart    Int
+  incomeMid      Int
+  incomeMax      Int
+  sourceNote     String
+  growthPath     String
+  skills         String[]
+  companies      String[]
+  traitTags      String[] // как в спеке (рус.), матчинг через shared aliases
+  motivationTags String[]
+  firstSteps     String[]
+}
+
+// ─────────────────────── Отчёт ───────────────────────
+enum ReportStatus {
+  GENERATING
+  READY
+  FAILED
+}
+
+model Report {
+  id        String       @id @default(cuid())
+  session   TestSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId String       @unique
+  slug      String       @unique // напр. "r0ysjp" -> /report/r0ysjp
+  status    ReportStatus @default(GENERATING)
+  finalJson Json? // собранный FinalReport
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  progress ReportProgress?
+
+  @@index([slug])
+}
+
+// Чеклист-геймификация (какие разделы отчёта пользователь открыл/прошёл).
+model ReportProgress {
+  id        String  @id @default(cuid())
+  report    Report  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId  String  @unique
+  checklist Json    @default("{}")
+}
+
+// ─────────────────────── Библиотека книг ───────────────────────
+// Пока пустая (todo спеки). LLM ссылается на id отсюда, не выдумывает книги.
+model Book {
+  id         String   @id @default(cuid())
+  title      String
+  author     String
+  note       String?
+  traitTags  String[] // связь с факторами/сильными сторонами
+  factorKeys String[]
+}

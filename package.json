@@ -1,0 +1,23 @@
+{
+  "name": "profai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ИИ-профориентация — MVP веб-теста для взрослых",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:shared": "npm run build --workspace @profai/shared",
+    "build": "npm run build:shared && npm run build --workspace @profai/web",
+    "start": "npm run serve:prod --workspace @profai/api",
+    "db:generate": "npm run prisma:generate --workspace @profai/api",
+    "db:migrate": "npm run prisma:migrate --workspace @profai/api",
+    "db:seed": "npm run seed --workspace @profai/api",
+    "db:reset": "npm run prisma:reset --workspace @profai/api",
+    "test:api": "npm run test --workspace @profai/api"
+  }
+}
