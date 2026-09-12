@@ -138,7 +138,14 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json', ...CORS }).end(JSON.stringify({ ok: true, provider: provider.name }));
+    res.writeHead(200, { 'Content-Type': 'application/json', ...CORS }).end(
+      JSON.stringify({
+        ok: true,
+        provider: provider.name,
+        commit: (process.env.RENDER_GIT_COMMIT ?? 'dev').slice(0, 7),
+        web: HAS_WEB,
+      }),
+    );
     return;
   }
 
